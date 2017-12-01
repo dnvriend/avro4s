@@ -6,12 +6,12 @@ import com.typesafe.sbt.pgp.PgpKeys
 /** Adds common settings automatically to all subprojects */
 object GlobalPlugin extends AutoPlugin {
 
-  val org = "com.sksamuel.avro4s"
+  val org = "com.github.dnvriend"
 
-  val AvroVersion = "1.8.1"
+  val AvroVersion = "1.8.2"
   val Log4jVersion = "1.2.17"
-  val ScalatestVersion = "3.0.0"
-  val ScalaVersion = "2.12.1"
+  val ScalatestVersion = "3.0.4"
+  val ScalaVersion = "2.12.4"
   val Slf4jVersion = "1.7.12"
 
   override def requires = ReleasePlugin
@@ -19,13 +19,13 @@ object GlobalPlugin extends AutoPlugin {
   override def projectSettings = publishingSettings ++ Seq(
     organization := org,
     scalaVersion := ScalaVersion,
-    crossScalaVersions := Seq("2.11.8", "2.12.1"),
+    crossScalaVersions := Seq("2.11.11", "2.12.4"),
     resolvers += Resolver.mavenLocal,
     parallelExecution in Test := false,
     scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8", "-Ywarn-unused-import",
       "-Xfatal-warnings", "-feature", "-language:existentials"
     ),
-    javacOptions := Seq("-source", "1.7", "-target", "1.7"),
+    javacOptions := Seq("-source", "1.8", "-target", "1.8"),
     libraryDependencies ++= Seq(
       "org.scala-lang"    % "scala-reflect"     % scalaVersion.value,
       "org.apache.avro"   % "avro"              % AvroVersion,

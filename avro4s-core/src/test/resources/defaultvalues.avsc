@@ -48,6 +48,14 @@
       "default": ["Adventurous", "Helpful"]
     },
     {
+      "name": "traitsList",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": ["Adventurous", "Helpful"]
+    },
+    {
       "name": "favoriteWine",
       "type": {
         "type": "enum",
