@@ -1,12 +1,11 @@
 import sbt._
 import sbt.Keys._
-import sbtrelease.ReleasePlugin
-import com.typesafe.sbt.pgp.PgpKeys
 
 /** Adds common settings automatically to all subprojects */
 object GlobalPlugin extends AutoPlugin {
 
-  val org = "com.github.dnvriend"
+  val githubName = "dnvriend"
+  val org = s"com.github.$githubName"
 
   val AvroVersion = "1.8.2"
   val Log4jVersion = "1.2.17"
@@ -14,15 +13,20 @@ object GlobalPlugin extends AutoPlugin {
   val ScalaVersion = "2.12.4"
   val Slf4jVersion = "1.7.12"
 
-  override def requires = ReleasePlugin
   override def trigger = allRequirements
-  override def projectSettings = publishingSettings ++ Seq(
+  override def requires = plugins.JvmPlugin
+  override def projectSettings = Seq(
     organization := org,
     scalaVersion := ScalaVersion,
     crossScalaVersions := Seq("2.11.11", "2.12.4"),
     resolvers += Resolver.mavenLocal,
     parallelExecution in Test := false,
-    scalacOptions := Seq("-unchecked", "-deprecation", "-encoding", "utf8", "-Ywarn-unused-import",
+    scalacOptions := Seq(
+      "-unchecked",
+      "-deprecation",
+      "-encoding",
+      "utf8",
+      "-Ywarn-unused-import",
       "-Xfatal-warnings", "-feature", "-language:existentials"
     ),
     javacOptions := Seq("-source", "1.8", "-target", "1.8"),
@@ -33,24 +37,10 @@ object GlobalPlugin extends AutoPlugin {
       "log4j"             % "log4j"             % Log4jVersion          % "test",
       "org.slf4j"         % "log4j-over-slf4j"  % Slf4jVersion          % "test",
       "org.scalatest"     %% "scalatest"        % ScalatestVersion      % "test"
-    )
-  )
-
-  val publishingSettings = Seq(
-    publishMavenStyle := true,
-    publishArtifact in Test := false,
-    ReleasePlugin.autoImport.releasePublishArtifactsAction := PgpKeys.publishSigned.value,
-    ReleasePlugin.autoImport.releaseCrossBuild := true,
-    publishTo := {
-      val nexus = "https://oss.sonatype.org/"
-      if (isSnapshot.value) {
-        Some("snapshots" at s"${nexus}content/repositories/snapshots")
-      } else {
-        Some("releases" at s"${nexus}service/local/staging/deploy/maven2")
-      }
-    },
+    ),
+    licenses += ("MIT", url("http://opensource.org/licenses/MIT")),
     pomExtra := {
-      <url>https://github.com/sksamuel/avro4s</url>
+      <url>https://github.com/{githubName}/avro4s</url>
         <licenses>
           <license>
             <name>MIT</name>
@@ -59,16 +49,16 @@ object GlobalPlugin extends AutoPlugin {
           </license>
         </licenses>
         <scm>
-          <url>git@github.com:sksamuel/avro4s.git</url>
-          <connection>scm:git@github.com:sksamuel/avro4s.git</connection>
+          <url>git@github.com:{githubName}/avro4s.git</url>
+          <connection>scm:git@github.com:{githubName}/avro4s.git</connection>
         </scm>
         <developers>
           <developer>
-            <id>sksamuel</id>
-            <name>sksamuel</name>
-            <url>http://github.com/sksamuel</url>
+            <id>{githubName}</id>
+            <name>{githubName}</name>
+            <url>http://github.com/{githubName}</url>
           </developer>
         </developers>
-    }
+    },
   )
 }
