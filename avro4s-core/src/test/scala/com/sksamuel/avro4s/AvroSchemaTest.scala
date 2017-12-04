@@ -393,6 +393,8 @@ case class OptionDefaultValues(
   currency: Option[String] = Some("$")
 )
 
+case class Person(name: String = "", age: Int = 0)
+
 case class DefaultValues(
   name: String = "sammy",
   age: Int = 21,
@@ -407,6 +409,7 @@ case class DefaultValues(
   traitsList: List[String] = List("Adventurous", "Helpful"),
   emptyList: List[String] = List.empty,
   emptyMap: Map[String, String] = Map.empty[String, String],
+  defaultPerson: Person = Person(),
   favoriteWine: Wine = Wine.CabSav
 )
 

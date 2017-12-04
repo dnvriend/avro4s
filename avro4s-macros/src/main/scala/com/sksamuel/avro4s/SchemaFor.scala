@@ -415,7 +415,7 @@ object SchemaFor {
       case x: Map[_, _] => x.asJava
       case Some(x) => x
       case None => JsonProperties.NULL_VALUE
-      case x: Product => serializeDefaultToJson(x)
+      case x: Product => Map.empty[String, String].asJava
       case _ => value.toString
     }
 
@@ -425,16 +425,6 @@ object SchemaFor {
     aliases(annos).foreach(field.addAlias)
     addProps(annos, field.addProp)
     field
-  }
-
-  def serializeDefaultToJson(value: Any): util.Map[String, Any] = {
-    import org.json4s._
-    import org.json4s.native.JsonMethods._
-    import org.json4s.native.Serialization._
-    import org.json4s.native.Serialization
-    implicit val formats = Serialization.formats(NoTypeHints)
-    val str = write(value.asInstanceOf[AnyRef])
-    parse(str).extract[Map[String, Any]].asJava
   }
 
   def recordBuilder[T](name: String, pack: String, fields: Lazy[Seq[Schema.Field]], annos: Seq[Anno]): (Schema, Lazy[Schema]) = {

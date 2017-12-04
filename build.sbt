@@ -13,10 +13,8 @@ val json4s = "org.json4s" %% "json4s-native" % "3.5.3"
 val shapeless = "com.chuusai" %% "shapeless" % "2.3.2"
 
 lazy val `avro4s-macros` = project.in(file("avro4s-macros"))
-  .settings(
-    libraryDependencies += shapeless,
-    libraryDependencies += json4s
-  ).enablePlugins(BintraySettings)
+  .settings(libraryDependencies += shapeless)
+  .enablePlugins(BintraySettings)
 
 lazy val `avro4s-core` = project.in(file("avro4s-core"))
   .dependsOn(`avro4s-macros`)

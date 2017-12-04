@@ -72,6 +72,23 @@
       "default": {}
     },
     {
+        "name" : "defaultPerson",
+        "type" : {
+          "type" : "record",
+          "name" : "Person",
+          "fields" : [ {
+            "name" : "name",
+            "type" : "string",
+            "default" : ""
+          }, {
+            "name" : "age",
+            "type" : "int",
+            "default" : 0
+          } ]
+        },
+        "default" : { }
+      },
+    {
       "name": "favoriteWine",
       "type": {
         "type": "enum",
