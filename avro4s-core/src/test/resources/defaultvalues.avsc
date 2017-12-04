@@ -56,6 +56,22 @@
       "default": ["Adventurous", "Helpful"]
     },
     {
+      "name": "emptyList",
+      "type": {
+        "type": "array",
+        "items": "string"
+      },
+      "default": []
+    },
+    {
+      "name": "emptyMap",
+      "type": {
+        "type": "map",
+        "values": "string"
+      },
+      "default": {}
+    },
+    {
       "name": "favoriteWine",
       "type": {
         "type": "enum",

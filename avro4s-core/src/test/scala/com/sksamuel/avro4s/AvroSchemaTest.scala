@@ -405,6 +405,8 @@ case class DefaultValues(
   ),
   traits: Seq[String] = Seq("Adventurous", "Helpful"),
   traitsList: List[String] = List("Adventurous", "Helpful"),
+  emptyList: List[String] = List.empty,
+  emptyMap: Map[String, String] = Map.empty[String, String],
   favoriteWine: Wine = Wine.CabSav
 )
 
