@@ -88,7 +88,12 @@
         },
         "default" : { }
       },
-    {
+      {
+        "name" : "emptyByteArray",
+        "type" : "bytes",
+        "default" : ""
+      },
+      {
       "name": "favoriteWine",
       "type": {
         "type": "enum",

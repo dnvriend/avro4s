@@ -410,6 +410,7 @@ object SchemaFor {
       case x: Long => x
       case x: Boolean => x
       case x: Double => x
+      case x: Array[Byte] => x
       case x: List[_] => x.asJava
       case x: Seq[_] => x.asJava
       case x: Map[_, _] => x.asJava

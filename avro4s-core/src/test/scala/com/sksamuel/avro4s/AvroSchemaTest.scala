@@ -324,6 +324,7 @@ class AvroSchemaTest extends WordSpec with Matchers {
   }
   "support default values" in {
     val schema = SchemaFor[DefaultValues]()
+    println(schema.toString(true))
     val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/defaultvalues.avsc"))
     schema.toString(true) shouldBe expected.toString(true)
   }
@@ -410,6 +411,7 @@ case class DefaultValues(
   emptyList: List[String] = List.empty,
   emptyMap: Map[String, String] = Map.empty[String, String],
   defaultPerson: Person = Person(),
+  emptyByteArray: Array[Byte] = Array.emptyByteArray,
   favoriteWine: Wine = Wine.CabSav
 )
 
