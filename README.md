@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.org/dnvriend/avro4s.svg?branch=master)](https://travis-ci.org/dnvriend/avro4s)
 [![license](https://img.shields.io/github/license/mashape/apistatus.svg)]()
+[ ![Download](https://api.bintray.com/packages/dnvriend/maven/avro4s-core/images/download.svg) ](https://bintray.com/dnvriend/maven/avro4s-core/_latestVersion)
 
 Avro4s is a schema/class generation and serializing/deserializing library for [Avro](http://avro.apache.org/) written in Scala. The objective is to allow seamless use with Scala without the need to to write boilerplate conversions yourself, and without the runtime overhead of reflection. Hence, this is a macro based library and generates code for use with Avro at _compile time_.
 
