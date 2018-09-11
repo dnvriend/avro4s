@@ -8,11 +8,33 @@ Avro4s is a schema/class generation and serializing/deserializing library for [A
 
 The features of the library are:
 * Schema generation from classes at compile time
-* Class generation from schemas at build time
+* Class generation from schemas at build time(through [sbt](https://github.com/sksamuel/sbt-avro4s))
 * Boilerplate free serialization of classes to Avro
 * Boilerplate free deserialization of Avro to classes
 
 ## Changelog
+
+##### 1.8.3
+- Fixed issue with serializing optional unions of Java enums
+
+##### 1.8.2
+- Added support for @AvroName annotation #159
+- Tuple2 and Tuple3 now supported in Schema generation #156
+- Added support for LocalDateTime
+- Added native support for Seq[Byte] mapped to Schema.Type.Bytes
+- Bumped Avro library to 1.8.2
+- @AvroFixed support for Strings
+- @AvroNamespace works on traits
+- Support overriding namespace per field #171
+
+##### 1.8.1
+- Fix NPE in support for Scala enumerations #158
+- Added scaling support for BigDecmials #142
+
+##### 1.8.0
+- Fixed bug with conversions to and from BigDecimal #127
+- Fixed support for value classes in scala 2.11
+
 * 1.6.4 - Added support for Vectors
 * 1.6.3 - Fixed issue with decimal schema using strings instead of ints for scale and precision
 * 1.6.2 - Removed unused imports, fixed compiler warnings
@@ -224,16 +246,16 @@ val format = RecordFormat[Composer]
 val ennio = format.from(record)
 ```
 
-## Set a schema's decimal scale and precision
+## Set a schema's decimal scale, precision and rounding mode
 
-Bring an implicit `ScaleAndPrecision` into scope before using `AvroSchema`.
+Bring an implicit `ScaleAndPrecisionAndRoundingMode` into scope before using `AvroSchema`.
 
 ```scala
-import com.sksamuel.avro4s.ScaleAndPrecision
+import com.sksamuel.avro4s.ScaleAndPrecisionAndRoundingMode
 
 case class MyDecimal(d: BigDecimal)
 
-implicit val sp = ScaleAndPrecision(8, 20)
+implicit val sp = ScaleAndPrecisionAndRoundingMode(8, 20, RoundingMode.HALF_UP)
 val schema = AvroSchema[MyDecimal]
 ```
 
@@ -284,6 +306,7 @@ import shapeless.{:+:, CNil}
 |Float|float|
 |java.util.UUID|string|
 |java.time.LocalDate|string|
+|java.time.LocalDateTime|string|
 |Java Enums|enum|
 |sealed trait T|union|
 |sealed trait with only case objects|enum|
@@ -390,29 +413,3 @@ Contributions to avro4s are always welcome. Good ways to contribute include:
 * Fixing bugs and enhancing the DSL
 * Improving the performance of avro4s
 * Adding to the documentation
-
-## License
-```
-The MIT License (MIT)
-
-Copyright (c) 2015 Stephen Samuel
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-```

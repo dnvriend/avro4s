@@ -3,10 +3,10 @@ package com.sksamuel.avro4s
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.time.LocalDate
-import java.util.UUID
 
 import org.apache.avro.file.{DataFileReader, SeekableByteArrayInput}
 import org.apache.avro.generic.{GenericDatumReader, GenericRecord}
+import org.apache.avro.io.DecoderFactory
 import org.apache.avro.util.Utf8
 import org.scalatest.concurrent.TimeLimits
 import org.scalatest.{Matchers, WordSpec}
@@ -14,13 +14,7 @@ import shapeless.{:+:, CNil, Coproduct}
 
 import scala.collection.JavaConverters._
 
-sealed trait Dibble
-case class Dobble(str: String) extends Dibble
-case class Dabble(dbl: Double) extends Dibble
-
-case class Drapper(dibble: Dibble)
-
-case class Test1(wine: Wine)
+case class WineCrate(wine: Wine)
 case class Test2(dec: BigDecimal)
 
 case class Foo(str: String, boolean: Boolean)
@@ -40,11 +34,11 @@ case class NestedMapTest(map: Map[String, Foo])
 case class ValueWrapper(valueClass: ValueClass)
 case class ValueClass(value: String) extends AnyVal
 
-case class EitherCaseClasses(e: Either[Test1, Test2])
+case class EitherCaseClasses(e: Either[WineCrate, Test2])
 
 case class CPWrapper(u: Option[CPWrapper.ISTTB])
 object CPWrapper {
-  type ISTTB = Int :+: String :+: Test1 :+: Test2 :+: Boolean :+: CNil
+  type ISTTB = Int :+: String :+: WineCrate :+: Test2 :+: Boolean :+: CNil
 }
 
 class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
@@ -53,23 +47,20 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
   def read[T](bytes: Array[Byte])(implicit schema: SchemaFor[T]): GenericRecord = {
     val datumReader = new GenericDatumReader[GenericRecord](schema())
     val dataFileReader = new DataFileReader[GenericRecord](new SeekableByteArrayInput(bytes), datumReader)
-     new Iterator[GenericRecord] {
+    new Iterator[GenericRecord] {
       override def hasNext: Boolean = dataFileReader.hasNext
       override def next(): GenericRecord = dataFileReader.next
     }.toList.head
   }
 
+  def readB[T](out: ByteArrayOutputStream)(implicit schema: SchemaFor[T]): GenericRecord = readB(out.toByteArray)
+  def readB[T](bytes: Array[Byte])(implicit schema: SchemaFor[T]): GenericRecord = {
+    val datumReader = new GenericDatumReader[GenericRecord](schema())
+    val decoder = DecoderFactory.get().binaryDecoder(bytes, null)
+    datumReader.read(null, decoder)
+  }
+
   "AvroOutputStream" should {
-    "support java enums" in {
-
-      val output = new ByteArrayOutputStream
-      val avro = AvroOutputStream.data[Test1](output)
-      avro.write(Test1(Wine.Malbec))
-      avro.close()
-
-      val record = read[Test1](output)
-      record.get("wine").toString shouldBe Wine.Malbec.name
-    }
     "write big decimal" in {
 
       val output = new ByteArrayOutputStream
@@ -82,6 +73,20 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       val bytes = Array.ofDim[Byte](buffer.remaining())
       buffer.get(bytes)
       BigDecimal(BigInt(bytes), 2) shouldBe BigDecimal(123.45)
+    }
+    "write big decimal with default value" in {
+      case class Test(dec: BigDecimal = BigDecimal(1234.56))
+
+      val output = new ByteArrayOutputStream
+      val avro = AvroOutputStream.data[Test](output)
+      avro.write(Test())
+      avro.close()
+
+      val record = read[Test](output)
+      val buffer = record.get("dec").asInstanceOf[ByteBuffer]
+      val bytes = Array.ofDim[Byte](buffer.remaining())
+      buffer.get(bytes)
+      BigDecimal(BigInt(bytes), 2) shouldBe BigDecimal(1234.56)
     }
     "write out strings" in {
       case class Test(str: String)
@@ -163,7 +168,7 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
     "write eithers of case classes" in {
       val output1 = new ByteArrayOutputStream
       val avro1 = AvroOutputStream.data[EitherCaseClasses](output1)
-      avro1.write(EitherCaseClasses(Left(Test1(Wine.CabSav))))
+      avro1.write(EitherCaseClasses(Left(WineCrate(Wine.CabSav))))
       avro1.close()
 
       val record1 = read[EitherCaseClasses](output1)
@@ -176,6 +181,34 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
 
       val record2 = read[EitherCaseClasses](output2)
       record2.get("e").toString shouldBe """{"dec": {"bytes": """" + """\""" + """u0005°"}}"""
+    }
+    "write a Some as populated union with BigDecimal logical type" in {
+      case class Test(opt: Option[BigDecimal])
+
+      val output = new ByteArrayOutputStream
+      val avro = AvroOutputStream.data[Test](output)
+      avro.write(Test(Some(123.45)))
+      avro.close()
+
+      val record = read[Test](output)
+      val buffer = record.get("opt").asInstanceOf[ByteBuffer]
+      val bytes = Array.ofDim[Byte](buffer.remaining())
+      buffer.get(bytes)
+      BigDecimal(BigInt(bytes), 2) shouldBe BigDecimal(123.45)
+    }
+    "write a Some as populated union with BigDecimal logical type with default value" in {
+      case class Test(opt: Option[BigDecimal]= Some(1234.56))
+
+      val output = new ByteArrayOutputStream
+      val avro = AvroOutputStream.data[Test](output)
+      avro.write(Test())
+      avro.close()
+
+      val record = read[Test](output)
+      val buffer = record.get("opt").asInstanceOf[ByteBuffer]
+      val bytes = Array.ofDim[Byte](buffer.remaining())
+      buffer.get(bytes)
+      BigDecimal(BigInt(bytes), 2) shouldBe BigDecimal(1234.56)
     }
     "write a Some as populated union" in {
       case class Test(opt: Option[Double])
@@ -203,7 +236,7 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       val output = new ByteArrayOutputStream
       val avro = AvroOutputStream.data[CPWrapper](output)
       avro.write(CPWrapper(Some(Coproduct[CPWrapper.ISTTB](4))))
-      avro.close
+      avro.close()
 
       val record = read[CPWrapper](output)
       record.get("u").toString shouldBe "4"
@@ -212,7 +245,7 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       val output = new ByteArrayOutputStream
       val avro = AvroOutputStream.data[CPWrapper](output)
       avro.write(CPWrapper(Some(Coproduct[CPWrapper.ISTTB](Test2(34.98)))))
-      avro.close
+      avro.close()
 
       val record = read[CPWrapper](output)
       record.get("u").toString shouldBe """{"dec": {"bytes": """" + """\""" + """rª"}}"""
@@ -221,7 +254,7 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       val output = new ByteArrayOutputStream
       val avro = AvroOutputStream.data[CPWrapper](output)
       avro.write(CPWrapper(None))
-      avro.close
+      avro.close()
 
       val record = read[CPWrapper](output)
       record.get("u") shouldBe null
@@ -388,17 +421,6 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       val record = read[ScalaEnums](output)
       record.get("value").toString shouldBe "Amber"
     }
-    "support UUIDs" in {
-      val instance = Ids(UUID.randomUUID())
-
-      val output = new ByteArrayOutputStream
-      val avro = AvroOutputStream.data[Ids](output)
-      avro.write(instance)
-      avro.close()
-
-      val record = read[Ids](output)
-      UUID.fromString(record.get("myid").toString) shouldBe instance.myid
-    }
     "support LocalDates" in {
       val instance = LocalDateTest(LocalDate.now())
 
@@ -433,12 +455,83 @@ class AvroOutputStreamTest extends WordSpec with Matchers with TimeLimits {
       actual.map(_.get("str").toString) shouldBe Set("sam", "ham")
       actual.map(_.get("b").toString.toBoolean) shouldBe Set(true, false)
     }
+    "support bytes" in {
+      case class ByteWrapper(b: Byte)
+      val output = new ByteArrayOutputStream
+      val avro = AvroOutputStream.data[ByteWrapper](output)
+      avro.write(ByteWrapper(3))
+      avro.close()
+
+      val record = read[ByteWrapper](output)
+      record.get("b").asInstanceOf[java.lang.Integer] shouldBe 3
+    }
+    "support Seq[Byte]" in {
+      case class ByteSeq(d: Seq[Byte])
+      val output = new ByteArrayOutputStream
+      val avro = AvroOutputStream.data[ByteSeq](output)
+      avro.write(ByteSeq(Seq[Byte](1, 1, 2, 3, 5, 8)))
+      avro.close()
+
+      val record = read[ByteSeq](output)
+      record.get("d").asInstanceOf[java.nio.ByteBuffer].array().toVector shouldBe Vector[Byte](1, 1, 2, 3, 5, 8)
+    }
+    "support sealed traits with members" in {
+      {
+        val output = new ByteArrayOutputStream
+        val avro = AvroOutputStream.data[Department](output)
+        val sales = Department("sales", BigBoss("Bob"))
+        avro.write(sales)
+        avro.close()
+
+        val record = read[Department](output)
+        record.get("name") shouldBe new Utf8("sales")
+        record.get("head").asInstanceOf[GenericRecord].get("name") shouldBe new Utf8("Bob")
+      }
+      {
+        val output = new ByteArrayOutputStream
+        val avro = AvroOutputStream.data[Department](output)
+        val sales = Department("floor", RankAndFile("Joe", "Foreman"))
+        avro.write(sales)
+        avro.close()
+
+        val record = read[Department](output)
+        record.get("name") shouldBe new Utf8("floor")
+        record.get("head").asInstanceOf[GenericRecord].get("name") shouldBe new Utf8("Joe")
+        record.get("head").asInstanceOf[GenericRecord].get("jobTitle") shouldBe new Utf8("Foreman")
+      }
+    }
+    "support Array[Byte] in Either for data stream" in {
+      val a = EitherWithByte("z", Right("value".getBytes))
+
+      val baos = new ByteArrayOutputStream()
+      val os = AvroOutputStream.data[EitherWithByte](baos)
+      os.write(a)
+      os.close()
+
+      val record = read[EitherWithByte](baos)
+      record.get("key") shouldBe new Utf8("z")
+      record.get("value").asInstanceOf[ByteBuffer].array().toVector shouldBe "value".getBytes.toVector
+    }
+    "support Array[Byte] in Either for a binary stream" in {
+      val a = EitherWithByte("z", Right("value".getBytes))
+
+      val baos = new ByteArrayOutputStream()
+      val os = AvroOutputStream.binary[EitherWithByte](baos)
+      os.write(a)
+      os.close()
+
+      val record = readB[EitherWithByte](baos)
+      record.get("key") shouldBe new Utf8("z")
+      record.get("value").asInstanceOf[ByteBuffer].array().toVector shouldBe "value".getBytes.toVector
+    }
   }
 }
+
+case class EitherWithByte(key: String, value: Either[Int, Array[Byte]])
 
 object Colours extends Enumeration {
   val Red, Amber, Green = Value
 }
 case class ScalaEnums(value: Colours.Value)
 
-
+case class ScalaOptionEnums(value: Option[Colours.Value])

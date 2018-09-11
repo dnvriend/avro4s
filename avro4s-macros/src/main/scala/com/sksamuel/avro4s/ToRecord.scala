@@ -1,19 +1,22 @@
 package com.sksamuel.avro4s
 
 import java.nio.ByteBuffer
-import java.time.LocalDate
+import java.time.{LocalDate, LocalDateTime}
 import java.time.format.DateTimeFormatter
 import java.util.UUID
 
-import com.sksamuel.avro4s.ToSchema.defaultScaleAndPrecision
+import com.sksamuel.avro4s.ToSchema.defaultScaleAndPrecisionAndRoundingMode
 import org.apache.avro.generic.GenericData.EnumSymbol
 import org.apache.avro.generic.GenericRecord
-import org.apache.avro.{Conversions, LogicalTypes}
+import org.apache.avro.{Conversions, LogicalTypes, Schema}
 import shapeless.ops.coproduct.Reify
-import shapeless.{:+:, CNil, Coproduct, Generic, Inl, Inr, Lazy}
+import shapeless.ops.hlist.ToList
+import shapeless.{:+:, CNil, Coproduct, Generic, HList, Inl, Inr, Lazy}
 
 import scala.collection.JavaConverters._
 import scala.language.experimental.macros
+import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 trait ToValue[A] {
   def apply(value: A): Any = value
@@ -34,17 +37,10 @@ trait LowPriorityToValue {
 }
 
 object LowPriorityToValue {
+
   def fixedImpl[T: c.WeakTypeTag](c: scala.reflect.macros.whitebox.Context): c.Expr[ToValue[T]] = {
     import c.universe._
     val tpe = weakTypeTag[T].tpe
-
-    val fixedAnnotation: Option[AvroFixed] = tpe.typeSymbol.annotations.collectFirst {
-      case anno if anno.tree.tpe <:< c.weakTypeOf[AvroFixed] =>
-        anno.tree.children.tail match {
-          case Literal(Constant(size: Int)) :: Nil => AvroFixed(size)
-        }
-    }
-
     c.Expr[ToValue[T]](
       q"""
         {
@@ -81,12 +77,17 @@ object ToValue extends LowPriorityToValue {
     override def apply(value: LocalDate): String = value.format(DateTimeFormatter.ISO_LOCAL_DATE)
   }
 
-  implicit def BigDecimalToValue(implicit sp: ScaleAndPrecision = defaultScaleAndPrecision): ToValue[BigDecimal] = {
+  implicit object LocalDateTimeToValue extends ToValue[LocalDateTime] {
+    override def apply(value: LocalDateTime): String = value.format(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+  }
+
+  implicit def BigDecimalToValue(implicit sp: ScaleAndPrecisionAndRoundingMode = defaultScaleAndPrecisionAndRoundingMode): ToValue[BigDecimal] = {
     val decimalConversion = new Conversions.DecimalConversion
     val decimalType = LogicalTypes.decimal(sp.precision, sp.scale)
     new ToValue[BigDecimal] {
       override def apply(value: BigDecimal): ByteBuffer = {
-        decimalConversion.toBytes(value.setScale(sp.scale).bigDecimal, null, decimalType)
+        val scaledValue = value.setScale(sp.scale, sp.roundingMode)
+        decimalConversion.toBytes(scaledValue.bigDecimal, null, decimalType)
       }
     }
   }
@@ -118,8 +119,20 @@ object ToValue extends LowPriorityToValue {
     }
   }
 
+  implicit object ByteToValue extends ToValue[Byte] {
+    override def apply(value: Byte) = value.toInt
+  }
+
+  implicit object ShortToValue extends ToValue[Short] {
+    override def apply(value: Short) = value.toInt
+  }
+
   implicit object ByteArrayToValue extends ToValue[Array[Byte]] {
     override def apply(value: Array[Byte]): ByteBuffer = ByteBuffer.wrap(value)
+  }
+
+  implicit object ByteSeqToValue extends ToValue[Seq[Byte]] {
+    override def apply(value: Seq[Byte]): ByteBuffer = ByteBuffer.wrap(value.toArray[Byte])
   }
 
   implicit def MapToValue[T](implicit tovalue: ToValue[T]) = new ToValue[Map[String, T]] {
@@ -128,12 +141,12 @@ object ToValue extends LowPriorityToValue {
     }
   }
 
-  implicit def JavaEnumToValue[E <: Enum[_]]: ToValue[E] = new ToValue[E] {
-    override def apply(value: E): Any = new EnumSymbol(null, value)
+  implicit def JavaEnumToValue[E <: Enum[_]](implicit toSchema: ToSchema[E]): ToValue[E] = new ToValue[E] {
+    override def apply(value: E): Any = new EnumSymbol(toSchema(), value)
   }
 
-  implicit def ScalaEnumToValue[E <: Enumeration#Value]: ToValue[E] = new ToValue[E] {
-    override def apply(value: E): Any = new EnumSymbol(null, value.toString)
+  implicit def ScalaEnumToValue[E <: Enumeration#Value](implicit toSchema: ToSchema[E]): ToValue[E] = new ToValue[E] {
+    override def apply(value: E): Any = new EnumSymbol(toSchema(), value.toString)
   }
 
   implicit def EitherToValue[T, U](implicit lefttovalue: ToValue[T], righttovalue: ToValue[U]) = new ToValue[Either[T, U]] {
@@ -164,9 +177,21 @@ object ToValue extends LowPriorityToValue {
     }
   }
 
-  implicit def genTraitObjectEnum[T, C <: Coproduct](implicit gen: Generic.Aux[T, C],
-                                                     objs: Reify[C]): ToValue[T] = new ToValue[T] {
-    override def apply(value: T): Any = new EnumSymbol(null, value.toString)
+  implicit def genTraitObjectEnum[T, C <: Coproduct, L <: HList](implicit ct: ClassTag[T], gen: Generic.Aux[T, C],
+                                                     objs: Reify.Aux[C, L],toList: ToList[L, T]): ToValue[T] = new ToValue[T] {
+
+    protected val schema: Schema = {
+      val tpe = weakTypeTag[T]
+      val namespace = tpe.tpe.typeSymbol.annotations.map(_.toString)
+        .find(_.startsWith("com.sksamuel.avro4s.AvroNamespace"))
+        .map(_.stripPrefix("com.sksamuel.avro4s.AvroNamespace(\"").stripSuffix("\")"))
+        .getOrElse(ct.runtimeClass.getPackage.getName)
+      val name = ct.runtimeClass.getSimpleName
+      val symbols = toList(objs()).map(_.toString).asJava
+      Schema.createEnum(name, null, namespace, symbols)
+    }
+
+    override def apply(value: T): Any = new EnumSymbol(schema, value.toString)
   }
 }
 
@@ -185,61 +210,56 @@ object ToRecord {
 
     val constructorArgumentsWithTypes = helper.fieldsOf(tpe)
     val converters: Seq[Tree] = constructorArgumentsWithTypes.map { case (sym, sig) =>
-
-      val fixedAnnotation: Option[AvroFixed] = sig.typeSymbol.annotations.collectFirst {
-        case anno if anno.tree.tpe <:< c.weakTypeOf[AvroFixed] =>
-          anno.tree.children.tail match {
-            case Literal(Constant(size: Int)) :: Nil => AvroFixed(size)
-          }
-      }
-
-      fixedAnnotation match {
-        case Some(AvroFixed(size)) =>
-          q"""{
-            shapeless.Lazy(com.sksamuel.avro4s.ToValue.fixed[$sig])
-          }
-          """
-        case None =>
-          q"""com.sksamuel.avro4s.ToRecord.lazyConverter[$sig]"""
+      helper.fixed(sig.typeSymbol) match {
+        case Some(AvroFixed(_)) => q"""{_root_.shapeless.Lazy(com.sksamuel.avro4s.ToValue.fixed[$sig])}"""
+        case None => q"""_root_.com.sksamuel.avro4s.ToRecord.lazyConverter[$sig]"""
       }
     }
 
     val puts: Seq[Tree] = constructorArgumentsWithTypes.zipWithIndex.map {
-      case ((f, sig), idx) =>
-        val name = f.name.asInstanceOf[c.TermName]
-        val fieldName: String = name.decodedName.toString
-        val fixedAnnotation: Option[AvroFixed] = sig.typeSymbol.annotations.collectFirst {
-          case anno if anno.tree.tpe <:< c.weakTypeOf[AvroFixed] =>
-            anno.tree.children.tail match {
-              case Literal(Constant(size: Int)) :: Nil => AvroFixed(size)
-            }
-        }
+      case ((sym, sig), idx) =>
 
+        val name = sym.name.asInstanceOf[c.TermName]
+        val fieldName = helper.avroName(sym).getOrElse(q"${name.decodedName.toString}")
         val valueClass = sig.typeSymbol.isClass && sig.typeSymbol.asClass.isDerivedValueClass
+        val typeFixed = helper.fixed(sig.typeSymbol)
+        val fieldFixed = helper.fixed(sym)
 
-        // if a field is a value class we need to handle it here, using a converter
-        // for the underlying value rather than the actual value class
-        if (fixedAnnotation.nonEmpty) {
+        // if the field has been annotated with fixed then we need to wrap it in a FixedToValue
+        if (typeFixed.nonEmpty) {
           q"""
           {
-            val converter = converters($idx).asInstanceOf[shapeless.Lazy[com.sksamuel.avro4s.ToValue[$sig]]]
+            val converter = converters($idx).asInstanceOf[_root_.shapeless.Lazy[_root_.com.sksamuel.avro4s.ToValue[$sig]]]
             record.put($fieldName, converter.value(t.$name : $sig))
           }
           """
+          // else if the field has been annotated with fixed, then we need to convert
+          // the field value into a byte array
+        } else if (fieldFixed.nonEmpty) {
+          val size = fieldFixed.get.size
+          q"""
+          {
+             val schema = _root_.org.apache.avro.SchemaBuilder.fixed($fieldName).size($size)
+             val f = new _root_.org.apache.avro.generic.GenericData.Fixed(schema, t.$name.getBytes("UTF-8").array)
+             record.put($fieldName, f)
+          }
+          """
+          // if a field is a value class we need to handle it here, using a converter
+          // for the underlying value rather than the actual value class
         } else if (valueClass) {
           val valueCstr = sig.typeSymbol.asClass.primaryConstructor.asMethod.paramLists.flatten.head
           val valueFieldType = valueCstr.typeSignature
           val valueFieldName = valueCstr.name.asInstanceOf[c.TermName]
           q"""
           {
-            val converter = com.sksamuel.avro4s.ToRecord.lazyConverter[$valueFieldType]
+            val converter = _root_.com.sksamuel.avro4s.ToRecord.lazyConverter[$valueFieldType]
             record.put($fieldName, converter.value(t.$name.$valueFieldName : $valueFieldType))
           }
           """
         } else {
           q"""
           {
-            val converter = converters($idx).asInstanceOf[shapeless.Lazy[com.sksamuel.avro4s.ToValue[$sig]]]
+            val converter = converters($idx).asInstanceOf[_root_.shapeless.Lazy[_root_.com.sksamuel.avro4s.ToValue[$sig]]]
             record.put($fieldName, converter.value(t.$name : $sig))
           }
           """
@@ -247,18 +267,17 @@ object ToRecord {
     }
 
     c.Expr[ToRecord[T]](
-      q"""new com.sksamuel.avro4s.ToRecord[$tpe] {
-            private val schemaFor : com.sksamuel.avro4s.SchemaFor[$tpe] = com.sksamuel.avro4s.SchemaFor[$tpe]
-            private val converters : Array[shapeless.Lazy[com.sksamuel.avro4s.ToValue[_]]] = Array(..$converters)
+      q"""new _root_.com.sksamuel.avro4s.ToRecord[$tpe] {
+            private val schemaFor : _root_.com.sksamuel.avro4s.SchemaFor[$tpe] = _root_.com.sksamuel.avro4s.SchemaFor[$tpe]
+            private val converters : Array[_root_.shapeless.Lazy[_root_.com.sksamuel.avro4s.ToValue[_]]] = Array(..$converters)
 
-            def apply(t : $tpe): org.apache.avro.generic.GenericRecord = {
+            def apply(t : $tpe): _root_.org.apache.avro.generic.GenericRecord = {
 
-              val record = new org.apache.avro.generic.GenericData.Record(schemaFor())
+              val record = new _root_.org.apache.avro.generic.GenericData.Record(schemaFor())
               ..$puts
               record
             }
-          }
-        """
+          }"""
     )
   }
 

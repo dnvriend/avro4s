@@ -10,6 +10,7 @@ import org.apache.avro.io.EncoderFactory
 
 trait AvroOutputStream[T] {
   def close(): Unit
+  def close(closeUnderlying: Boolean): Unit
   def flush(): Unit
   def fSync(): Unit
   def write(t: T): Unit
@@ -24,9 +25,11 @@ case class AvroBinaryOutputStream[T](os: OutputStream)(implicit schemaFor: Schem
   val dataWriter = new GenericDatumWriter[GenericRecord](schemaFor())
   val encoder = EncoderFactory.get().binaryEncoder(os, null)
 
-  override def close(): Unit = {
-    encoder.flush()
-    os.close()
+  override def close(): Unit = close(true)
+  override def close(closeUnderlying: Boolean): Unit = {
+    flush()
+    if (closeUnderlying)
+      os.close()
   }
 
   override def write(t: T): Unit = dataWriter.write(toRecord(t), encoder)
@@ -40,7 +43,7 @@ case class AvroDataOutputStream[T](os: OutputStream, codec: CodecFactory = Codec
 
   val schema = schemaFor()
   val (writer, writeFn) = schema.getType match {
-    case Schema.Type.DOUBLE | Schema.Type.LONG | Schema.Type.BOOLEAN | Schema.Type.STRING =>
+    case Schema.Type.DOUBLE | Schema.Type.LONG | Schema.Type.BOOLEAN | Schema.Type.STRING | Schema.Type.INT | Schema.Type.FLOAT =>
       val datumWriter = new GenericDatumWriter[T](schema)
       val dataFileWriter = new DataFileWriter[T](datumWriter)
       dataFileWriter.setCodec(codec)
@@ -57,9 +60,12 @@ case class AvroDataOutputStream[T](os: OutputStream, codec: CodecFactory = Codec
       })
   }
 
-  override def close(): Unit = {
+  override def close(): Unit = close(true)
+  override def close(closeUnderlying: Boolean): Unit = {
+    flush()
     writer.close()
-    os.close()
+    if (closeUnderlying)
+      os.close()
   }
 
   override def write(t: T): Unit = {
@@ -77,9 +83,11 @@ case class AvroJsonOutputStream[T](os: OutputStream)(implicit schemaFor: SchemaF
   protected val datumWriter = new GenericDatumWriter[GenericRecord](schema)
   private val encoder = EncoderFactory.get.jsonEncoder(schema, os)
 
-  override def close(): Unit = {
-    encoder.flush()
-    os.close()
+  override def close(): Unit = close(true)
+  override def close(closeUnderlying: Boolean): Unit = {
+    flush()
+    if (closeUnderlying)
+      os.close()
   }
 
   override def write(t: T): Unit = datumWriter.write(toRecord(t), encoder)
@@ -105,25 +113,4 @@ object AvroOutputStream {
   def binary[T: SchemaFor : ToRecord](file: File): AvroBinaryOutputStream[T] = binary(file.toPath)
   def binary[T: SchemaFor : ToRecord](path: Path): AvroBinaryOutputStream[T] = binary(Files.newOutputStream(path))
   def binary[T: SchemaFor : ToRecord](os: OutputStream): AvroBinaryOutputStream[T] = AvroBinaryOutputStream(os)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](file: File): AvroOutputStream[T] = apply(file.toPath, true)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](file: File, binaryModeDisabled: Boolean): AvroOutputStream[T] = apply(file.toPath, binaryModeDisabled)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](path: Path): AvroOutputStream[T] = apply(Files.newOutputStream(path), true)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](path: Path, binaryModeDisabled: Boolean): AvroOutputStream[T] = apply(Files.newOutputStream(path), binaryModeDisabled)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](os: OutputStream): AvroOutputStream[T] = apply(os, false)
-
-  @deprecated("Use .json .data or .binary to make it explicit which type of output you want", "1.5.0")
-  def apply[T: SchemaFor : ToRecord](os: OutputStream, binaryModeDisabled: Boolean): AvroOutputStream[T] = {
-    if (binaryModeDisabled) new AvroDataOutputStream[T](os)
-    else new AvroBinaryOutputStream[T](os)
-  }
 }

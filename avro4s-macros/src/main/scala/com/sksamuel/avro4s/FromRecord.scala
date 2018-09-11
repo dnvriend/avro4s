@@ -1,10 +1,10 @@
 package com.sksamuel.avro4s
 
 import java.nio.ByteBuffer
-import java.time.LocalDate
+import java.time.{LocalDate, LocalDateTime}
 import java.util.UUID
 
-import com.sksamuel.avro4s.ToSchema.defaultScaleAndPrecision
+import com.sksamuel.avro4s.ToSchema.defaultScaleAndPrecisionAndRoundingMode
 import org.apache.avro.Schema.Field
 import org.apache.avro.generic.{GenericData, GenericRecord}
 import org.apache.avro.util.Utf8
@@ -16,10 +16,11 @@ import shapeless.{:+:, CNil, Coproduct, Generic, HList, Inr, Lazy}
 import scala.collection.JavaConverters._
 import scala.language.experimental.macros
 import scala.reflect.ClassTag
+import scala.reflect.runtime.universe._
 
 // turns an avro value into a scala value
 // type T is the target scala type
-trait FromValue[T] {
+trait FromValue[T] extends Serializable {
   def apply(value: Any, field: Field = null): T
 }
 
@@ -40,7 +41,7 @@ trait LowPriorityFromValue {
 
 object FromValue extends LowPriorityFromValue {
 
-  implicit def BigDecimalFromValue(implicit sp: ScaleAndPrecision = defaultScaleAndPrecision): FromValue[BigDecimal] = {
+  implicit def BigDecimalFromValue(implicit sp: ScaleAndPrecisionAndRoundingMode = defaultScaleAndPrecisionAndRoundingMode): FromValue[BigDecimal] = {
     new FromValue[BigDecimal] {
       val decimalConversion = new Conversions.DecimalConversion
       val decimalType = LogicalTypes.decimal(sp.precision, sp.scale)
@@ -54,8 +55,20 @@ object FromValue extends LowPriorityFromValue {
     override def apply(value: Any, field: Field): Boolean = value.asInstanceOf[Boolean]
   }
 
+  implicit object ByteFromValue extends FromValue[Byte] {
+    override def apply(value: Any, field: Field): Byte = value.asInstanceOf[Int].toByte
+  }
+
+  implicit object ShortFromValue extends FromValue[Short] {
+    override def apply(value: Any, field: Field): Short = value.asInstanceOf[Int].toShort
+  }
+
   implicit object ByteArrayFromValue extends FromValue[Array[Byte]] {
     override def apply(value: Any, field: Field): Array[Byte] = value.asInstanceOf[ByteBuffer].array
+  }
+
+  implicit object ByteSeqFromValue extends FromValue[Seq[Byte]] {
+    override def apply(value: Any, field: Field): Seq[Byte] = value.asInstanceOf[ByteBuffer].array().toSeq
   }
 
   implicit object DoubleFromValue extends FromValue[Double] {
@@ -86,6 +99,10 @@ object FromValue extends LowPriorityFromValue {
     override def apply(value: Any, field: Field): LocalDate = LocalDate.parse(value.toString)
   }
 
+  implicit object LocalDateTimeToValue extends FromValue[LocalDateTime] {
+    override def apply(value: Any, field: Field): LocalDateTime = LocalDateTime.parse(value.toString)
+  }
+
   implicit def OptionFromValue[T](implicit fromvalue: FromValue[T]) = new FromValue[Option[T]] {
     override def apply(value: Any, field: Field): Option[T] = Option(value).map((value: Any) => fromvalue.apply(value))
   }
@@ -94,11 +111,13 @@ object FromValue extends LowPriorityFromValue {
     override def apply(value: Any, field: Field): E = Enum.valueOf(tag.runtimeClass.asInstanceOf[Class[E]], value.toString)
   }
 
-  implicit def ScalaEnumFromValue[E <: Enumeration#Value] = new FromValue[E] {
+  implicit def ScalaEnumFromValue[E <: Enumeration#Value](implicit tag: TypeTag[E]) = new FromValue[E] {
+    val typeRef = tag.tpe match { case t @ TypeRef(_, _, _) => t}
+    val klass = Class.forName(typeRef.pre.typeSymbol.asClass.fullName + "$")
+    import scala.reflect.NameTransformer._
+    val enum = klass.getField(MODULE_INSTANCE_NAME).get(null).asInstanceOf[Enumeration]
+
     override def apply(value: Any, field: Field): E = {
-      val klass = Class.forName(field.schema.getFullName + "$")
-      import scala.reflect.NameTransformer._
-      val enum = klass.getField(MODULE_INSTANCE_NAME).get(null).asInstanceOf[Enumeration]
       enum.withName(value.toString).asInstanceOf[E]
     }
   }
@@ -276,19 +295,16 @@ object FromRecord {
 
       fixedAnnotation match {
         case Some(fixed) =>
-          q"""{
-            null
-          }
-          """
+          q"""{null}"""
         case None =>
-          q"""com.sksamuel.avro4s.FromRecord.lazyConverter[$sig]"""
+          q"""_root_.com.sksamuel.avro4s.FromRecord.lazyConverter[$sig]"""
       }
     }
 
     val fromValues: Seq[Tree] = fields.zipWithIndex.map {
-      case ((f, sig), idx) =>
-        val name = f.name.asInstanceOf[c.TermName]
-        val decoded: String = name.decodedName.toString
+      case ((sym, sig), idx) =>
+        val name = sym.name.asInstanceOf[c.TermName]
+        val decoded: Tree = helper.avroName(sym).getOrElse(q"${name.decodedName.toString}")
         val fixedAnnotation: Option[AvroFixed] = sig.typeSymbol.annotations.collectFirst {
           case anno if anno.tree.tpe <:< c.weakTypeOf[AvroFixed] =>
             anno.tree.children.tail match {
@@ -300,7 +316,7 @@ object FromRecord {
         if (fixedAnnotation.nonEmpty) {
           q"""
           {
-            val value = record.get($decoded).asInstanceOf[org.apache.avro.generic.GenericData.Fixed]
+            val value = record.get($decoded).asInstanceOf[_root_.org.apache.avro.generic.GenericData.Fixed]
             new $sig(new scala.collection.mutable.WrappedArray.ofByte(value.bytes()))
           }
           """
@@ -312,7 +328,7 @@ object FromRecord {
           // that refers to the value class itself, and not the variable inside the value class
           q"""
           {
-            val converter = com.sksamuel.avro4s.FromRecord.lazyConverter[$valueFieldType]
+            val converter = _root_.com.sksamuel.avro4s.FromRecord.lazyConverter[$valueFieldType]
             val value = converter.value(record.get($decoded), record.getSchema.getField($decoded))
             new $sig(value)
           }
@@ -320,7 +336,7 @@ object FromRecord {
         } else {
           q"""
           {
-            val converter = converters($idx).asInstanceOf[shapeless.Lazy[com.sksamuel.avro4s.FromValue[$sig]]]
+            val converter = converters($idx).asInstanceOf[_root_.shapeless.Lazy[_root_.com.sksamuel.avro4s.FromValue[$sig]]]
             converter.value(record.get($decoded), record.getSchema.getField($decoded))
           }
           """
@@ -328,10 +344,9 @@ object FromRecord {
     }
 
     c.Expr[FromRecord[T]](
-      q"""new com.sksamuel.avro4s.FromRecord[$tpe] {
-            private val converters: Array[shapeless.Lazy[com.sksamuel.avro4s.FromValue[_]]] = Array(..$converters)
-
-            def apply(record: org.apache.avro.generic.GenericRecord): $tpe = {
+      q"""new _root_.com.sksamuel.avro4s.FromRecord[$tpe] {
+            private val converters: Array[_root_.shapeless.Lazy[_root_.com.sksamuel.avro4s.FromValue[_]]] = Array(..$converters)
+            def apply(record: _root_.org.apache.avro.generic.GenericRecord): $tpe = {
               $companion.apply(..$fromValues)
             }
           }

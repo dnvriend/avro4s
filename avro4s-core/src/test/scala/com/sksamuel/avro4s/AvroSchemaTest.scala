@@ -142,11 +142,6 @@ class AvroSchemaTest extends WordSpec with Matchers {
       val schema = SchemaFor[Outer]()
       schema.toString(true) shouldBe expected.toString(true)
     }
-    "accept UUIDs" in {
-      val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/uuid.avsc"))
-      val schema = SchemaFor[Ids]()
-      schema.toString(true) shouldBe expected.toString(true)
-    }
     "accept LocalDate" in {
       val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/localdate.avsc"))
       val schema = SchemaFor[LocalDateTest]()
@@ -250,12 +245,7 @@ class AvroSchemaTest extends WordSpec with Matchers {
       val schema = SchemaFor[Test]()
       schema.toString(true) shouldBe expected.toString(true)
     }
-    "accept java enums" in {
-      case class Test(wine: Wine)
-      val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/enum.avsc"))
-      val schema = SchemaFor[Test]()
-      schema.toString(true) shouldBe expected.toString(true)
-    }
+
     "support sealed traits" in {
       val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/sealed_traits.avsc"))
       val schema = SchemaFor[Wrapper]()
@@ -301,22 +291,7 @@ class AvroSchemaTest extends WordSpec with Matchers {
       val schema = SchemaFor[Annotated]()
       schema.toString(true) shouldBe expected.toString(true)
     }
-
-    "support namespace annotations on records" in {
-      @AvroNamespace("com.yuval") case class AnnotatedNamespace(s: String)
-      val schema = SchemaFor[AnnotatedNamespace]()
-      schema.getNamespace shouldBe "com.yuval"
-    }
-
-    "support namespace annotations in nested records" in {
-      @AvroNamespace("com.yuval") case class AnnotatedNamespace(s: String, internal: InternalAnnotated)
-      @AvroNamespace("com.yuval.internal") case class InternalAnnotated(i: Int)
-      val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/namespace.avsc"))
-      val schema = SchemaFor[AnnotatedNamespace]()
-      schema.toString(true) shouldBe expected.toString(true)
-    }
   }
-
   "support scala enums" in {
     val schema = SchemaFor[ScalaEnums]()
     val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/scalaenums.avsc"))
@@ -330,6 +305,11 @@ class AvroSchemaTest extends WordSpec with Matchers {
   "support default option values" in {
     val schema = SchemaFor[OptionDefaultValues]()
     val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/optiondefaultvalues.avsc"))
+    schema.toString(true) shouldBe expected.toString(true)
+  }
+  "support default options of scala enum values" in {
+    val schema = SchemaFor[ScalaOptionEnums]()
+    val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/optionscalaenum.avsc"))
     schema.toString(true) shouldBe expected.toString(true)
   }
   "support recursive types" in {
@@ -385,6 +365,22 @@ class AvroSchemaTest extends WordSpec with Matchers {
     val schema = SchemaFor[examples.UppercasePkg.Data]()
     schema.toString(true) shouldBe expected.toString(true)
   }
+  "support Seq[Tuple2] issue #156" in {
+    val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/tuple2.json"))
+    val schema = SchemaFor[TupleTest2]()
+    schema.toString(true) shouldBe expected.toString(true)
+  }
+  "support Seq[Tuple3]" in {
+    val expected = new org.apache.avro.Schema.Parser().parse(getClass.getResourceAsStream("/tuple3.json"))
+    val schema = SchemaFor[TupleTest3]()
+    schema.toString(true) shouldBe expected.toString(true)
+  }
+
+  case class TupleTest2(first: String, second: Seq[(TupleTestA, TupleTestB)])
+  case class TupleTest3(first: String, second: Seq[(TupleTestA, TupleTestB, TupleTestC)])
+  case class TupleTestA(parameter: Int)
+  case class TupleTestB(parameter: Int)
+  case class TupleTestC(parameter: Int)
 }
 
 case class OptionDefaultValues(
